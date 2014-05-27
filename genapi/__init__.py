@@ -111,7 +111,7 @@ class GenObject(object):
         if a['type'] != 'basic:file:':
             raise ValueError("Only basic:file: field can be downloaded")
 
-        return self.gencloud.download([self.id], field).next()
+        return self.gencloud.download([self.id, a["value"]["file"]]).next()
 
     def __str__(self):
         return unicode(self.name).encode('utf-8')
@@ -230,35 +230,21 @@ class GenCloud(object):
 
         return projobjects[project_id]
 
-    def download(self, objects_fields):
+    def download(self, objects_files):
         """Download files of data objects.
 
-        :param objects: Data object ids
-        :type objects: list of UUID strings
-        :param field: Download field name
-        :type field: string
+        :param objects_file: Data object ids
+        :type objects: list of tuples, first elements is UUID,
+            and second is the file name.
         :rtype: generator of requests.Response objects
-
         """
-        for o,field in objects_fields:
+        for o,file in objects_files:
             o = str(o)
-
-            if not field.startswith('output'):
-                raise ValueError("Only processor results (output.* fields) can be downloaded")
-
             if re.match('^[0-9a-fA-F]{24}$', o) is None:
                 raise ValueError("Invalid object id {}".format(o))
 
-            if field not in self.cache['objects'][o].annotation:
-                raise ValueError("Download field {} does not exist".format(field))
-
-            a = self.cache['objects'][o].annotation[field]
-            if a['type'] != 'basic:file:':
-                raise ValueError("Only basic:file: field can be downloaded")
-
-        for o,field in objects_fields:
-            a = self.cache['objects'][o].annotation[field]
-            url = urlparse.urljoin(self.url, 'api/v1/data/{}/download/{}'.format(o, a['value']['file']))
+        for o,file in objects_files:
+            url = urlparse.urljoin(self.url, 'api/v1/data/{}/download/{}'.format(o, file))
             yield requests.get(url, stream=True, auth=self.auth)
 
 
