@@ -230,7 +230,7 @@ class GenCloud(object):
 
         return projobjects[project_id]
 
-    def download(self, objects, field):
+    def download(self, objects_fields):
         """Download files of data objects.
 
         :param objects: Data object ids
@@ -240,11 +240,12 @@ class GenCloud(object):
         :rtype: generator of requests.Response objects
 
         """
-        if not field.startswith('output'):
-            raise ValueError("Only processor results (output.* fields) can be downloaded")
-
-        for o in objects:
+        for o,field in objects_fields:
             o = str(o)
+
+            if not field.startswith('output'):
+                raise ValueError("Only processor results (output.* fields) can be downloaded")
+
             if re.match('^[0-9a-fA-F]{24}$', o) is None:
                 raise ValueError("Invalid object id {}".format(o))
 
@@ -255,7 +256,7 @@ class GenCloud(object):
             if a['type'] != 'basic:file:':
                 raise ValueError("Only basic:file: field can be downloaded")
 
-        for o in objects:
+        for o,field in objects_fields:
             a = self.cache['objects'][o].annotation[field]
             url = urlparse.urljoin(self.url, 'api/v1/data/{}/download/{}'.format(o, a['value']['file']))
             yield requests.get(url, stream=True, auth=self.auth)
