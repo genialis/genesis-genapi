@@ -141,9 +141,12 @@ class GenProject(object):
     def objects(self, **query):
         """Query for Data object annotation."""
         data = self.gencloud.project_objects(self.id)
-        query['case_ids__contains'] = self.id
-        ids = set(d['id'] for d in self.gencloud.api.dataid.get(**query)['objects'])
-        return [d for d in data if d.id in ids]
+        if query:
+            query['case_ids__contains'] = self.id
+            ids = set(d['id'] for d in self.gencloud.api.dataid.get(**query)['objects'])
+            return { d.id: d for d in data if d.id in ids }
+        else:
+            return { d.id: d for d in data }
 
     def find(self, filter):
         """Filter Data object annotation."""
