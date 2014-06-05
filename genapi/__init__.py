@@ -1,24 +1,36 @@
+import json
+import mmap
 import os
 import re
+import sys
 import urlparse
 
 import requests
 import slumber
+
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
 
 class GenAuth(requests.auth.AuthBase):
 
     """Attach HTTP Genesis Authentication to Request object."""
 
-    def __init__(self, username, password, url):
+    def __init__(self, email, password, url):
         payload = {
-            'username': username,
+            'email': email,
             'password': password
         }
 
-        r = requests.post(url + '/user/ajax/login/', data=payload)
+        try:
+            r = requests.post(url + '/user/ajax/login/', data=payload)
+        except requests.exceptions.ConnectionError:
+            raise Exception('Invalid url {}'.format(url))
+
+        if r.status_code == 403:
+            raise Exception('Invalid credentials.')
+
         if not ('sessionid' in r.cookies and 'csrftoken' in r.cookies):
-            raise Exception('Invalid credentials or url.')
+            raise Exception('Invalid credentials.')
 
         self.sessionid = r.cookies['sessionid']
         self.csrftoken = r.cookies['csrftoken']
@@ -26,6 +38,7 @@ class GenAuth(requests.auth.AuthBase):
     def __call__(self, r):
         # modify and return the request
         r.headers['Cookie'] = 'csrftoken={}; sessionid={}'.format(self.csrftoken, self.sessionid)
+        r.headers['X-CSRFToken'] = self.csrftoken
         return r
 
 
@@ -166,9 +179,9 @@ class GenCloud(object):
 
     """Python API for the Genesis platform."""
 
-    def __init__(self, username='anonymous', password='anonymous', url='http://cloud.genialis.com'):
+    def __init__(self, email='anonymous@genialis.com', password='anonymous', url='http://cloud.genialis.com'):
         self.url = url
-        self.auth = GenAuth(username, password, url)
+        self.auth = GenAuth(email, password, url)
         self.api = slumber.API(urlparse.urljoin(url, 'api/v1/'), self.auth)
 
         self.cache = {'objects': {}, 'projects': None, 'project_objects': {}}
@@ -230,6 +243,117 @@ class GenCloud(object):
 
         return projobjects[project_id]
 
+    def processors(self, processor_name=None):
+        """Return a list of Processor objects.
+
+        :param project_id: ObjectId of Genesis project
+        :type project_id: string
+        :rtype: list of Processor objects
+
+        """
+        if processor_name:
+            return self.api.processor.get(name=processor_name)['objects']
+        else:
+            return self.api.processor.get()['objects']
+
+    def print_upload_processors(self):
+        """Print all upload processor names."""
+        for p in self.processors():
+            if p['name'].startswith('import:upload:'):
+                print p['name']
+
+    def print_processor_inputs(self, processor_name):
+        """Print processor input fields and types.
+
+        :param processor_name: Processor object name
+        :type processor_name: string
+
+        """
+        p = self.processors(processor_name=processor_name)
+
+        if len(p) == 1:
+            p = p[0]
+        else:
+            Exception('Invalid processor name')
+
+        for field_schema, fields, path in iterate_schema({}, p['input_schema'], 'input'):
+            name = field_schema['name']
+            typ = field_schema['type']
+            value = fields[name] if name in fields else None
+            print "{} -> {}".format(name, typ)
+
+    def upload(self, project_id, processor_name, **fields):
+        """Upload files and data objects.
+
+        :param project_id: ObjectId of Genesis project
+        :type project_id: string
+        :param processor_name: Processor object name
+        :type processor_name: string
+        :param fields: Processor field-value pairs
+        :type fields: args
+        :rtype: HTTP Response object
+
+        """
+        p = self.processors(processor_name=processor_name)
+
+        if len(p) == 1:
+            p = p[0]
+        else:
+            Exception('Invalid processor name {}'.format(processor_name))
+
+        for field_name, field_val in fields.iteritems():
+            if field_name not in p['input_schema']:
+                Exception("Field {} not in processor {} inputs".format(field_name, p['name']))
+
+            if find_field(p['input_schema'], field_name)['type'].startswith('basic:file:'):
+                if not os.path.isfile(field_val):
+                    Exception("File {} not found".format(field_val))
+
+        inputs = {}
+
+        def monitor_callback(fname, monitor):
+            total = len(monitor.encoder)
+            sys.stdout.write("\r{:.0f} % Uploading {}".format(100. * monitor.bytes_read / total, fname))
+            sys.stdout.flush()
+
+        for field_name, field_val in fields.iteritems():
+            if find_field(p['input_schema'], field_name)['type'].startswith('basic:file:'):
+                e = MultipartEncoder(
+                    fields={'files[]': (field_val, open(field_val, 'rb'), 'application/octet-stream')}
+                )
+
+                m = MultipartEncoderMonitor(e, lambda m: monitor_callback(field_val, m))
+
+                sys.stdout.write("Uploading {}".format(field_val))
+                sys.stdout.flush()
+
+                response = requests.post(
+                    urlparse.urljoin(self.url, 'upload/'),
+                    auth=self.auth,
+                    data=m,
+                    headers={'Content-Type': m.content_type})
+
+                print
+
+                response_json = json.loads(response.text)
+
+                inputs[field_name] = {
+                    'file': response_json['files'][0]['name'],
+                    'file_temp': response_json['files'][0]['temp']
+                }
+            else:
+                inputs[field_name] = field_val
+
+        d = {
+            'status': 'uploading',
+            'case_id': project_id,
+            'processor_name': processor_name,
+            'input': inputs,
+            'input_schema': p['input_schema']
+        }
+
+        return self.api.data.post(d)
+
     def download(self, objects_files):
         """Download files of data objects.
 
@@ -265,6 +389,19 @@ def iterate_fields(fields, schema):
         else:
             yield (schema_dict[field_id], fields)
 
+
+def find_field(schema, field_name):
+    """Find field in schema by field name.
+
+    :param schema: Schema instance (e.g. input_schema)
+    :type schema: dict
+    :param field_name: Field name
+    :type field_name: string
+
+    """
+    for field in schema:
+        if field['name'] == field_name:
+            return field
 
 def iterate_schema(fields, schema, path=None):
     """Recursively iterate over all schema sub-fields.
