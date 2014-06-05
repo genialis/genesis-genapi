@@ -362,12 +362,12 @@ class GenCloud(object):
             and second is the file name.
         :rtype: generator of requests.Response objects
         """
-        for o,file in objects_files:
+        for o, file in objects_files:
             o = str(o)
             if re.match('^[0-9a-fA-F]{24}$', o) is None:
                 raise ValueError("Invalid object id {}".format(o))
 
-        for o,file in objects_files:
+        for o, file in objects_files:
             url = urlparse.urljoin(self.url, 'api/v1/data/{}/download/{}'.format(o, file))
             yield requests.get(url, stream=True, auth=self.auth)
 
