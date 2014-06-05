@@ -124,7 +124,7 @@ class GenObject(object):
         if a['type'] != 'basic:file:':
             raise ValueError("Only basic:file: field can be downloaded")
 
-        return self.gencloud.download([self.id, a["value"]["file"]]).next()
+        return self.gencloud.download([(self.id, a["value"]["file"])]).next()
 
     def __str__(self):
         return unicode(self.name).encode('utf-8')
