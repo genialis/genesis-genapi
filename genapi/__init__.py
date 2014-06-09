@@ -21,10 +21,7 @@ class GenAuth(requests.auth.AuthBase):
             'password': password
         }
 
-        try:
-            r = requests.post(url + '/user/ajax/login/', data=payload)
-        except requests.exceptions.ConnectionError:
-            raise Exception('Invalid url {}'.format(url))
+        r = requests.post(url + '/user/ajax/login/', data=payload)
 
         if r.status_code == 403:
             raise Exception('Invalid credentials.')
