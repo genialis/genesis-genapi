@@ -5,7 +5,7 @@ import os
 from setuptools import setup, find_packages
 
 NAME = "GenAPI"
-VERSION = "0.0.6"
+VERSION = "0.0.7"
 
 DESCRIPTION = "A Python API for the Genesis platform."
 LONG_DESCRIPTION = open(os.path.join(os.path.dirname(__file__), 'README.rst')).read()
