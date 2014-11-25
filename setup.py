@@ -5,7 +5,7 @@ import os
 from setuptools import setup, find_packages
 
 NAME = "GenAPI"
-VERSION = "0.0.7"
+VERSION = "0.0.8"
 
 DESCRIPTION = "A Python API for the Genesis platform."
 LONG_DESCRIPTION = open(os.path.join(os.path.dirname(__file__), 'README.rst')).read()
@@ -15,7 +15,6 @@ URL = "https://github.com/genialis/genesis-genapi/"
 LICENSE = "Proprietary software"
 
 if __name__ == '__main__':
-    print [r for r in open('requirements.txt').read().split("\n") if r != "" and r[:2] != "-e"]
     setup(
         name = NAME,
         version = VERSION,

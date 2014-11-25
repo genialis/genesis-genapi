@@ -1,14 +1,26 @@
+from __future__ import print_function
+
 import json
 import mmap
 import os
 import re
 import sys
-import urlparse
+
+try:
+   from urllib.parse import urljoin
+except ImportError:
+   from urlparse import urljoin
 
 import requests
 import slumber
 
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+from six import iteritems
+
+class MyJsonSerializer(slumber.serialize.JsonSerializer):
+    
+    def loads(self, data):
+        return json.loads(data.decode("utf8"))
 
 
 class GenAuth(requests.auth.AuthBase):
@@ -94,14 +106,14 @@ class GenObject(object):
 
     def print_annotation(self):
         """Print annotation "key: value" pairs to standard output."""
-        for path, a in self.annotation.iteritems():
-            print "{}: {}".format(path, a['value'])
+        for path, a in iteritems(self.annotation):
+            print("{}: {}".format(path, a['value']))
 
     def print_downloads(self):
         """Print file fields to standard output."""
-        for path, a in self.annotation.iteritems():
+        for path, a in iteritems(self.annotation):
             if path.startswith('output') and a['type'] == 'basic:file:':
-                print "{}: {}".format(path, a['value']['file'])
+                print("{}: {}".format(path, a['value']['file']))
 
     def download(self, field):
         """Download a file.
@@ -121,7 +133,7 @@ class GenObject(object):
         if a['type'] != 'basic:file:':
             raise ValueError("Only basic:file: field can be downloaded")
 
-        return self.gencloud.download([(self.id, a["value"]["file"])]).next()
+        return next(self.gencloud.download([(self.id, a["value"]["file"])]))
 
     def __str__(self):
         return unicode(self.name).encode('utf-8')
@@ -179,7 +191,10 @@ class GenCloud(object):
     def __init__(self, email='anonymous@genialis.com', password='anonymous', url='http://cloud.genialis.com'):
         self.url = url
         self.auth = GenAuth(email, password, url)
-        self.api = slumber.API(urlparse.urljoin(url, 'api/v1/'), self.auth)
+        serializer = slumber.serialize.Serializer(
+            serializers=[MyJsonSerializer()])
+        self.api = slumber.API(urljoin(url, 'api/v1/'), self.auth,
+            serializer=serializer)
 
         self.cache = {'objects': {}, 'projects': None, 'project_objects': {}}
 
@@ -224,11 +239,11 @@ class GenCloud(object):
                 while True:
                     ref_annotation = {}
                     remove_annotation = []
-                    for path, a in d.annotation.iteritems():
+                    for path, a in iteritems(d.annotation):
                         if a['type'].startswith('data:'):
                             # Referenced data object found
                             # Copy annotation
-                            ref_annotation.update({path + '.' + k: v for k, v in self.cache['objects'][a['value']].annotation.iteritems()})
+                            ref_annotation.update({path + '.' + k: v for k, v in iteritems(self.cache['objects'][a['value']].annotation)})
                             remove_annotation.append(path)
                     if ref_annotation:
                         d.annotation.update(ref_annotation)
@@ -257,7 +272,7 @@ class GenCloud(object):
         """Print all upload processor names."""
         for p in self.processors():
             if p['name'].startswith('import:upload:'):
-                print p['name']
+                print(p['name'])
 
     def print_processor_inputs(self, processor_name):
         """Print processor input fields and types.
@@ -277,7 +292,7 @@ class GenCloud(object):
             name = field_schema['name']
             typ = field_schema['type']
             value = fields[name] if name in fields else None
-            print "{} -> {}".format(name, typ)
+            print("{} -> {}".format(name, typ))
 
     def rundata(self, strjson):
         """POST JSON data object to server"""
@@ -304,7 +319,7 @@ class GenCloud(object):
         else:
             Exception('Invalid processor name {}'.format(processor_name))
 
-        for field_name, field_val in fields.iteritems():
+        for field_name, field_val in iteritems(fields):
             if field_name not in p['input_schema']:
                 Exception("Field {} not in processor {} inputs".format(field_name, p['name']))
 
@@ -319,7 +334,7 @@ class GenCloud(object):
             sys.stdout.write("\r{:.0f} % Uploading {}".format(100. * monitor.bytes_read / total, fname))
             sys.stdout.flush()
 
-        for field_name, field_val in fields.iteritems():
+        for field_name, field_val in iteritems(fields):
             if find_field(p['input_schema'], field_name)['type'].startswith('basic:file:'):
                 e = MultipartEncoder(
                     fields={'files[]': (field_val, open(field_val, 'rb'), 'application/octet-stream')}
@@ -331,12 +346,12 @@ class GenCloud(object):
                 sys.stdout.flush()
 
                 response = requests.post(
-                    urlparse.urljoin(self.url, 'upload/'),
+                    urljoin(self.url, 'upload/'),
                     auth=self.auth,
                     data=m,
                     headers={'Content-Type': m.content_type})
 
-                print
+                print()
 
                 response_json = json.loads(response.text)
 
@@ -371,7 +386,7 @@ class GenCloud(object):
                 raise ValueError("Invalid object id {}".format(o))
 
         for o, file in objects_files:
-            url = urlparse.urljoin(self.url, 'api/v1/data/{}/download/{}'.format(o, file))
+            url = urljoin(self.url, 'api/v1/data/{}/download/{}'.format(o, file))
             yield requests.get(url, stream=True, auth=self.auth)
 
 
@@ -385,7 +400,7 @@ def iterate_fields(fields, schema):
 
     """
     schema_dict = {val['name']: val for val in schema}
-    for field_id, properties in fields.iteritems():
+    for field_id, properties in iteritems(fields):
         if 'group' in schema_dict[field_id]:
             for _field_schema, _fields in iterate_fields(properties, schema_dict[field_id]['group']):
                 yield (_field_schema, _fields)
